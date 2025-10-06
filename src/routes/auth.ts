@@ -41,67 +41,67 @@ const upload = multer({
 const makeAvatarUrl = (p?: string | null) => (p ? `${PUBLIC_BASE}/${p}` : null);
 
 // ========== REGISTER (multipart/form-data) ==========
-// router.post("/register", upload.single("avatar"), async (req: Request, res: Response) => {
-//   try {
-//     const { username, email, password, role } = req.body || {};
-//     if (!username || !email || !password) {
-//       return res.status(400).json({ error: "Missing fields" });
-//     }
-
-//     const [dup] = await pool.execute(
-//       "SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1",
-//       [username, email]
-//     );
-//     if ((dup as any[]).length) {
-//       return res.status(409).json({ error: "username or email already taken" });
-//     }
-
-//     const hash = await bcrypt.hash(password, 12);
-//     const avatar_path = req.file ? `uploads/${req.file.filename}`.replace(/\\/g, "/") : null;
-//     const userRole = role === "ADMIN" ? "ADMIN" : "USER";
-
-//     const [result] = await pool.execute(
-//       `INSERT INTO users (username, email, password_hash, role, status, avatar_path)
-//        VALUES (?, ?, ?, ?, 'ACTIVE', ?)`,
-//       [username, email, hash, userRole, avatar_path]
-//     );
-
-//     const id = (result as any).insertId;
-//     return res.status(201).json({ id, username, email, avatarUrl: makeAvatarUrl(avatar_path) });
-//   } catch (err: any) {
-//     console.error("[register] error:", err);
-//     return res.status(500).json({ error: "Server error" });
-//   }
-// });
-
-
-router.post("/register", avatarUpload.single("avatar"), async (req, res) => {
+router.post("/register", upload.single("avatar"), async (req: Request, res: Response) => {
   try {
     const { username, email, password, role } = req.body || {};
     if (!username || !email || !password) {
       return res.status(400).json({ error: "Missing fields" });
     }
 
-    const userRole = role === "ADMIN" ? "ADMIN" : "USER";
-    const filename = req.file ? req.file.filename : null;
-    const avatar_path = filename ? `avatars/${filename}` : null;
+    const [dup] = await pool.execute(
+      "SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1",
+      [username, email]
+    );
+    if ((dup as any[]).length) {
+      return res.status(409).json({ error: "username or email already taken" });
+    }
 
-    await pool.execute(
+    const hash = await bcrypt.hash(password, 12);
+    const avatar_path = req.file ? `uploads/${req.file.filename}`.replace(/\\/g, "/") : null;
+    const userRole = role === "ADMIN" ? "ADMIN" : "USER";
+
+    const [result] = await pool.execute(
       `INSERT INTO users (username, email, password_hash, role, status, avatar_path)
        VALUES (?, ?, ?, ?, 'ACTIVE', ?)`,
       [username, email, hash, userRole, avatar_path]
     );
 
-    const base =
-      process.env.PUBLIC_BASE_URL || "https://server-1d8o.onrender.com";
-    const avatarUrl = filename ? `${base}/uploads/${filename}` : null;
-
-    return res.status(201).json({ id, username, email, avatarUrl });
-  } catch (err) {
-    console.error("[register] error >>>", err);
+    const id = (result as any).insertId;
+    return res.status(201).json({ id, username, email, avatarUrl: makeAvatarUrl(avatar_path) });
+  } catch (err: any) {
+    console.error("[register] error:", err);
     return res.status(500).json({ error: "Server error" });
   }
 });
+
+
+// router.post("/register", avatarUpload.single("avatar"), async (req, res) => {
+//   try {
+//     const { username, email, password, role } = req.body || {};
+//     if (!username || !email || !password) {
+//       return res.status(400).json({ error: "Missing fields" });
+//     }
+
+//     const userRole = role === "ADMIN" ? "ADMIN" : "USER";
+//     const filename = req.file ? req.file.filename : null;
+//     const avatar_path = filename ? `avatars/${filename}` : null;
+
+//     await pool.execute(
+//       `INSERT INTO users (username, email, password_hash, role, status, avatar_path)
+//        VALUES (?, ?, ?, ?, 'ACTIVE', ?)`,
+//       [username, email, hash, userRole, avatar_path]
+//     );
+
+//     const base =
+//       process.env.PUBLIC_BASE_URL || "https://server-1d8o.onrender.com";
+//     const avatarUrl = filename ? `${base}/uploads/${filename}` : null;
+
+//     return res.status(201).json({ id, username, email, avatarUrl });
+//   } catch (err) {
+//     console.error("[register] error >>>", err);
+//     return res.status(500).json({ error: "Server error" });
+//   }
+// });
 
 // ========== LOGIN ==========
 router.post("/login", async (req: Request, res: Response) => {

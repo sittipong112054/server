@@ -28,6 +28,11 @@ app.options('*', cors({
   credentials: true
 }));
 
+app.get('/', (req, res) => {
+  res.send('Hello Game Shop');
+});
+
+
 app.get('/test-db', async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT NOW() as now');

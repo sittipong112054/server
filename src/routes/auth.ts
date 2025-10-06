@@ -2,10 +2,12 @@
 import { Router, Request, Response } from "express";
 import pool from "../db";
 import bcrypt from "bcrypt";
-import crypto from "crypto";
+import crypto, { hash } from "crypto";
 import path from "path";
 import multer from "multer";
 import fs from "fs";
+import { avatarUpload } from "../middlewares/upload";
+import { id } from "zod/locales";
 
 const router = Router();
 
@@ -39,48 +41,74 @@ const upload = multer({
 const makeAvatarUrl = (p?: string | null) => (p ? `${PUBLIC_BASE}/${p}` : null);
 
 // ========== REGISTER (multipart/form-data) ==========
-router.post("/register", upload.single("avatar"), async (req: Request, res: Response) => {
+// router.post("/register", upload.single("avatar"), async (req: Request, res: Response) => {
+//   try {
+//     const { username, email, password, role } = req.body || {};
+//     if (!username || !email || !password) {
+//       return res.status(400).json({ error: "Missing fields" });
+//     }
+
+//     const [dup] = await pool.execute(
+//       "SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1",
+//       [username, email]
+//     );
+//     if ((dup as any[]).length) {
+//       return res.status(409).json({ error: "username or email already taken" });
+//     }
+
+//     const hash = await bcrypt.hash(password, 12);
+//     const avatar_path = req.file ? `uploads/${req.file.filename}`.replace(/\\/g, "/") : null;
+//     const userRole = role === "ADMIN" ? "ADMIN" : "USER";
+
+//     const [result] = await pool.execute(
+//       `INSERT INTO users (username, email, password_hash, role, status, avatar_path)
+//        VALUES (?, ?, ?, ?, 'ACTIVE', ?)`,
+//       [username, email, hash, userRole, avatar_path]
+//     );
+
+//     const id = (result as any).insertId;
+//     return res.status(201).json({ id, username, email, avatarUrl: makeAvatarUrl(avatar_path) });
+//   } catch (err: any) {
+//     console.error("[register] error:", err);
+//     return res.status(500).json({ error: "Server error" });
+//   }
+// });
+
+router.post("/register", avatarUpload.single("avatar"), async (req, res) => {
   try {
     const { username, email, password, role } = req.body || {};
     if (!username || !email || !password) {
       return res.status(400).json({ error: "Missing fields" });
     }
 
-    const [dup] = await pool.execute(
-      "SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1",
-      [username, email]
-    );
-    if ((dup as any[]).length) {
-      return res.status(409).json({ error: "username or email already taken" });
-    }
-
-    const hash = await bcrypt.hash(password, 12);
-    const avatar_path = req.file ? `uploads/${req.file.filename}`.replace(/\\/g, "/") : null;
     const userRole = role === "ADMIN" ? "ADMIN" : "USER";
+    const filename = req.file ? req.file.filename : null;
+    const avatar_path = filename ? `avatars/${filename}` : null;
 
-    const [result] = await pool.execute(
+    await pool.execute(
       `INSERT INTO users (username, email, password_hash, role, status, avatar_path)
        VALUES (?, ?, ?, ?, 'ACTIVE', ?)`,
       [username, email, hash, userRole, avatar_path]
     );
 
-    const id = (result as any).insertId;
-    return res.status(201).json({ id, username, email, avatarUrl: makeAvatarUrl(avatar_path) });
-  } catch (err: any) {
-    console.error("[register] error:", err);
+    const base =
+      process.env.PUBLIC_BASE_URL || "https://server-1d8o.onrender.com";
+    const avatarUrl = filename ? `${base}/uploads/${filename}` : null;
+
+    return res.status(201).json({ id, username, email, avatarUrl });
+  } catch (err) {
+    console.error("[register] error >>>", err);
     return res.status(500).json({ error: "Server error" });
   }
 });
 
 // ========== LOGIN ==========
 router.post("/login", async (req: Request, res: Response) => {
-  
   try {
     let { usernameOrEmail, password } = req.body || {};
     usernameOrEmail = (usernameOrEmail ?? "").trim();
     password = (password ?? "").trim();
 
-    
     if (!usernameOrEmail || !password) {
       return res.status(400).json({ error: "Missing fields" });
     }
@@ -92,20 +120,20 @@ router.post("/login", async (req: Request, res: Response) => {
         LIMIT 1`,
       [usernameOrEmail, usernameOrEmail]
     );
-    
+
     const user = (rows as any[])[0];
     if (!user) return res.status(401).json({ error: "Invalid credentials" });
-    if (user.status !== "ACTIVE") return res.status(403).json({ error: "Account inactive" });
+    if (user.status !== "ACTIVE")
+      return res.status(403).json({ error: "Account inactive" });
 
-    console.log('[login] rows len =', (rows as any[]).length);
-const ok = await bcrypt.compare(password, user.password_hash ?? '');
-console.log('[login] compare =', ok);
+    console.log("[login] rows len =", (rows as any[]).length);
+    const ok = await bcrypt.compare(password, user.password_hash ?? "");
+    console.log("[login] compare =", ok);
 
     if (!ok) return res.status(401).json({ error: "Invalid credentials" });
     const token = crypto.randomBytes(32).toString("hex");
     const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000);
 
-    
     await pool.execute(
       `INSERT INTO sessions
          (user_id, session_token, issued_at, expires_at, ip_address, user_agent)
@@ -142,7 +170,9 @@ console.log('[login] compare =', ok);
 // ========== LOGOUT ==========
 router.post("/logout", async (req: Request, res: Response) => {
   const authHeader = req.headers.authorization;
-  const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
+  const bearer = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice(7)
+    : undefined;
   const token =
     (req as any).cookies?.[COOKIE_NAME] ||
     (req.body && req.body.token) ||
@@ -168,7 +198,9 @@ router.post("/logout", async (req: Request, res: Response) => {
 
 router.get("/me", async (req: Request, res: Response) => {
   const authHeader = req.headers.authorization;
-  const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
+  const bearer = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice(7)
+    : undefined;
   const token =
     (req as any).cookies?.[COOKIE_NAME] ||
     (req.query && (req.query.token as string)) ||

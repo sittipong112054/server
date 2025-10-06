@@ -1,0 +1,16 @@
+-- Create database (adjust if you already have one)
+CREATE DATABASE IF NOT EXISTS `stream_website` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE `stream_website`;
+
+-- Products
+CREATE TABLE IF NOT EXISTS products (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  title VARCHAR(255) NOT NULL,
+  price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  image_url VARCHAR(500) NULL,
+  description TEXT NULL,
+  status ENUM('ACTIVE','INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+);

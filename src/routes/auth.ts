@@ -74,6 +74,7 @@ const makeAvatarUrl = (p?: string | null) => (p ? `${PUBLIC_BASE}/${p}` : null);
 //   }
 // });
 
+
 router.post("/register", avatarUpload.single("avatar"), async (req, res) => {
   try {
     const { username, email, password, role } = req.body || {};

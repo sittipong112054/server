@@ -4,6 +4,7 @@ import cookieParser from "cookie-parser";
 import path from "path";
 import authRoutes from "./routes/auth";
 import usersRouter from './routes/users';
+import pool from "./db";
 
 const app = express();
 
@@ -26,6 +27,22 @@ app.options('*', cors({
   origin: 'http://localhost:4200',
   credentials: true
 }));
+
+app.get('/test-db', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT NOW() as now');
+        res.json({
+            status: 'ok',
+            now: (rows as any)[0].now
+        });
+    } catch (err) {
+        console.error('[DB] connection error', err);
+        res.status(500).json({
+            status: 'error',
+            message: err instanceof Error ? err.message : String(err)
+        });
+    }
+});
 
 app.use(cookieParser());
 app.use(express.json());

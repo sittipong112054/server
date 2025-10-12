@@ -1,0 +1,109 @@
+// src/routes/users.ts  (หรือไฟล์ที่ประกาศ /users/me/wallet/topup)
+
+
+// ===============================
+//  POST: ซื้อเกม (หักเงิน + สร้าง order + เพิ่มใน user_games)
+// ===============================
+// router.post('/users/me/wallet/charge', requireAuth, async (req, res) => {
+//   const me = (req as any).user;
+//   const gameId = Number(req.body?.gameId);
+//   const qty = Math.max(1, Number(req.body?.qty || 1));
+
+//   if (!Number.isFinite(gameId) || gameId <= 0) {
+//     return res.status(400).json({ error: 'Invalid gameId' });
+//   }
+
+//   const conn = await pool.getConnection();
+//   try {
+//     await conn.beginTransaction();
+
+//     // 1) ดึงข้อมูลเกม (แก้ให้ select title, price, status)
+//     const [gRows] = await conn.execute(
+//       `SELECT id, title, price, status
+//          FROM games
+//         WHERE id = ? FOR UPDATE`,
+//       [gameId]
+//     );
+//     const game = (gRows as any[])[0];
+//     if (!game || game.status !== 'ACTIVE') {
+//       await conn.rollback();
+//       conn.release();
+//       return res.status(400).json({ error: 'Game not available' });
+//     }
+
+//     // 2) กันซื้อซ้ำ
+//     const [ownRows] = await conn.execute(
+//       `SELECT 1
+//          FROM user_games
+//         WHERE user_id = ? AND game_id = ?
+//         LIMIT 1`,
+//       [me.id, gameId]
+//     );
+//     if ((ownRows as any[]).length) {
+//       await conn.rollback();
+//       conn.release();
+//       return res.status(409).json({ error: 'Already owned' });
+//     }
+
+//     // 3) เช็คยอดเงินคงเหลือ
+//     const total = Number(game.price) * qty;
+//     const [uRows] = await conn.execute(
+//       `SELECT wallet_balance
+//          FROM users
+//         WHERE id = ? FOR UPDATE`,
+//       [me.id]
+//     );
+//     const bal = Number((uRows as any[])[0]?.wallet_balance ?? 0);
+//     if (bal < total) {
+//       await conn.rollback();
+//       conn.release();
+//       return res.status(402).json({ error: 'Insufficient balance' });
+//     }
+
+//     // 4) หักเงิน
+//     const newBal = +(bal - total).toFixed(2);
+//     await conn.execute(
+//       `UPDATE users
+//           SET wallet_balance = ?
+//         WHERE id = ?`,
+//       [newBal, me.id]
+//     );
+
+//     // 5) สร้าง order + order_items
+//     const [oRes] = await conn.execute(
+//       `INSERT INTO orders (user_id, total_before_discount, discount_amount, total_paid, status)
+//        VALUES (?, ?, 0.00, ?, 'PAID')`,
+//       [me.id, total, total]
+//     );
+//     const orderId = (oRes as any).insertId;
+
+//     await conn.execute(
+//       `INSERT INTO order_items (order_id, game_id, unit_price, qty, subtotal)
+//        VALUES (?, ?, ?, ?, ?)`,
+//       [orderId, gameId, game.price, qty, total]
+//     );
+
+//     // 6) ให้สิทธิ์ครอบครองเกม
+//     await conn.execute(
+//       `INSERT INTO user_games (user_id, game_id)
+//        VALUES (?, ?)`,
+//       [me.id, gameId]
+//     );
+
+//     // 7) บันทึก wallet transaction (แก้ให้ type เป็น PURCHASE)
+//     await conn.execute(
+//       `INSERT INTO wallet_transactions (user_id, type, amount, balance_after, ref_order_id, note)
+//        VALUES (?, 'PURCHASE', ?, ?, ?, ?)`,
+//       [me.id, total, newBal, orderId, `Buy: ${game.title}`]
+//     );
+
+//     await conn.commit();
+//     res.json({ ok: true, balance: newBal, orderId });
+//   } catch (e) {
+//     await conn.rollback();
+//     console.error('[charge] error', e);
+//     res.status(500).json({ error: 'Server error' });
+//   } finally {
+//     conn.release();
+//   }
+// });

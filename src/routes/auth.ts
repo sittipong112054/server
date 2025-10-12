@@ -14,7 +14,6 @@ const router = Router();
 const PUBLIC_BASE = process.env.PUBLIC_BASE_URL ?? "http://localhost:3002";
 const COOKIE_NAME = "session_token";
 
-// -------- uploads (root-level: <project>/uploads) --------
 const uploadRoot = path.join(process.cwd(), "uploads");
 fs.mkdirSync(uploadRoot, { recursive: true });
 
@@ -74,7 +73,6 @@ router.post("/register", upload.single("avatar"), async (req: Request, res: Resp
 });
 
 
-// ========== LOGIN ==========
 router.post("/login", async (req: Request, res: Response) => {
   try {
     let { usernameOrEmail, password } = req.body || {};
@@ -139,7 +137,6 @@ router.post("/login", async (req: Request, res: Response) => {
   }
 });
 
-// ========== LOGOUT ==========
 router.post("/logout", async (req: Request, res: Response) => {
   const authHeader = req.headers.authorization;
   const bearer = authHeader?.startsWith("Bearer ")

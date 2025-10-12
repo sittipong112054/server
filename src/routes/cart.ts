@@ -4,36 +4,18 @@ import { requireAuth } from '../middlewares/authMiddleware';
 import pool from '../db';
 const router = express.Router();
 const PUBLIC_BASE = process.env.PUBLIC_BASE_URL ?? 'http://localhost:3002';
-/**
- * ต้องมีตาราง cart_items ตามนี้ (ถ้ายังไม่มีให้สร้าง):
- *
- * CREATE TABLE IF NOT EXISTS cart_items (
- *   id        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
- *   user_id   BIGINT UNSIGNED NOT NULL,
- *   game_id   BIGINT UNSIGNED NOT NULL,
- *   qty       INT UNSIGNED NOT NULL DEFAULT 1,
- *   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
- *   PRIMARY KEY (id),
- *   UNIQUE KEY uq_user_game (user_id, game_id),
- *   KEY fk_cart_user (user_id),
- *   KEY fk_cart_game (game_id),
- *   CONSTRAINT fk_cart_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
- *   CONSTRAINT fk_cart_game FOREIGN KEY (game_id) REFERENCES games(id)
- * ) ENGINE=InnoDB;
- */
+
 const toUrl = (p?: string | null) =>
   p ? `${PUBLIC_BASE}/${String(p).replace(/^\/?/, '')}` : null;
 
-// --------- Helpers ---------
+
 const two = (n: number) => +n.toFixed(2);
 
-// (ไม่มี field ส่วนลดใน schema games ปัจจุบัน)
-// ฟังก์ชันนี้เผื่ออนาคตถ้าเพิ่มส่วนลด
+
 const unitFinal = (price: number /*, discount?: number*/) => two(price);
 
-// --------- Cart APIs ---------
 
-// GET /cart  -> รายการตะกร้าของ user ปัจจุบัน
+
 router.get('/', requireAuth, async (req: any, res) => {
   const userId = req.user.id;
 
@@ -64,7 +46,6 @@ router.get('/', requireAuth, async (req: any, res) => {
   res.json({ ok: true, data });
 });
 
-// POST /cart { gameId, qty?=1 } -> เพิ่ม/บวกจำนวน
 router.post('/', requireAuth, async (req: any, res) => {
   const userId = req.user.id;
   const { gameId, qty = 1 } = req.body;
@@ -73,7 +54,6 @@ router.post('/', requireAuth, async (req: any, res) => {
     return res.status(400).json({ ok: false, error: 'invalid payload' });
   }
 
-  // upsert โดย key (user_id, game_id)
   await pool.execute(
     `INSERT INTO cart_items (user_id, game_id, qty)
      VALUES (?, ?, ?)
@@ -106,7 +86,6 @@ router.post('/', requireAuth, async (req: any, res) => {
   });
 });
 
-// PATCH /cart/:itemId { qty } -> เปลี่ยนจำนวน
 router.patch('/:itemId', requireAuth, async (req: any, res) => {
   const userId = req.user.id;
   const { itemId } = req.params;
@@ -147,7 +126,6 @@ router.patch('/:itemId', requireAuth, async (req: any, res) => {
   });
 });
 
-// DELETE /cart/:itemId -> ลบรายการ
 router.delete('/:itemId', requireAuth, async (req: any, res) => {
   const userId = req.user.id;
   const { itemId } = req.params;
@@ -160,9 +138,6 @@ router.delete('/:itemId', requireAuth, async (req: any, res) => {
   res.json({ ok: true });
 });
 
-// --------- Coupon validate ---------
-
-// POST /cart/validate-coupon  { code, subtotal }
 router.post('/validate-coupon', requireAuth, async (req, res) => {
   const { code, subtotal = 0 } = req.body;
   if (!code) return res.status(400).json({ ok: false, error: 'missing code' });
@@ -180,7 +155,6 @@ router.post('/validate-coupon', requireAuth, async (req, res) => {
   if (!dc) return res.status(404).json({ ok: false, error: 'coupon not found' });
   if (!dc.active) return res.status(400).json({ ok: false, error: 'inactive coupon' });
 
-  // ช่วงเวลา
   if (dc.start_at && now < new Date(dc.start_at)) {
     return res.status(400).json({ ok: false, error: 'coupon not started' });
   }
@@ -188,12 +162,10 @@ router.post('/validate-coupon', requireAuth, async (req, res) => {
     return res.status(400).json({ ok: false, error: 'coupon expired' });
   }
 
-  // max uses (global)
   if (dc.max_uses && Number(dc.used_count) >= Number(dc.max_uses)) {
     return res.status(400).json({ ok: false, error: 'coupon exhausted' });
   }
 
-  // per user limit
   const [ur] = await pool.execute(
     `SELECT COUNT(*) AS used
        FROM code_redemptions
@@ -205,7 +177,6 @@ router.post('/validate-coupon', requireAuth, async (req, res) => {
     return res.status(400).json({ ok: false, error: 'user limit reached' });
   }
 
-  // คำนวณส่วนลด
   const value = Number(dc.discount_value);
   let amount = 0;
   if (dc.discount_type === 'PERCENT') {
@@ -219,13 +190,6 @@ router.post('/validate-coupon', requireAuth, async (req, res) => {
   res.json({ ok: true, data: { code: dc.code, amount } });
 });
 
-// --------- Checkout ---------
-
-/**
- * POST /cart/checkout
- * body: { itemIds: number[], coupon?: { code: string, amount: number } }
- * result: { ok:true, orderId, status: 'PAID' | 'PENDING', total }
- */
 router.post('/checkout', requireAuth, async (req: any, res) => {
   const userId = req.user.id;
   const { itemIds = [], coupon } = req.body;
@@ -238,7 +202,6 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
   try {
     await conn.beginTransaction();
 
-    // อ่านรายการในตะกร้าที่เลือก
     const [rows] = await conn.execute(
       `SELECT
           ci.id AS itemId, ci.qty,
@@ -255,7 +218,6 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
       return res.status(400).json({ ok: false, error: 'items not found' });
     }
 
-    // คำนวณยอด
     let subtotal = 0;
     for (const r of items) {
       const unit = unitFinal(Number(r.price));
@@ -267,7 +229,6 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
     let codeId: number | null = null;
 
     if (coupon?.code) {
-      // ล็อกคูปอง (เพื่อความถูกต้อง)
       const [cRows] = await conn.execute(
         `SELECT id, code, discount_type, discount_value, max_uses, per_user_limit,
                 used_count, active, start_at, end_at
@@ -283,7 +244,6 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
       if (dc.end_at && now > new Date(dc.end_at)) throw new Error('coupon expired');
       if (dc.max_uses && Number(dc.used_count) >= Number(dc.max_uses)) throw new Error('coupon exhausted');
 
-      // per user limit
       const [ur] = await conn.execute(
         `SELECT COUNT(*) AS used FROM code_redemptions WHERE code_id=? AND user_id=?`,
         [dc.id, userId]
@@ -291,7 +251,6 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
       const used = Number((ur as any[])[0].used || 0);
       if (used >= Number(dc.per_user_limit || 1)) throw new Error('user limit reached');
 
-      // คำนวณจริงอีกครั้ง (อย่าเชื่อจำนวนเงินจาก client)
       const val = Number(dc.discount_value);
       if (dc.discount_type === 'PERCENT') discount = two(subtotal * val / 100);
       else discount = two(Math.min(val, subtotal));
@@ -301,7 +260,6 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
 
     const total = two(Math.max(0, subtotal - discount));
 
-    // สร้าง order
     const [oRes] = await conn.execute(
       `INSERT INTO orders (user_id, total_before_discount, discount_amount, total_paid, status)
        VALUES (?, ?, ?, ?, ?)`,
@@ -309,7 +267,6 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
     );
     const orderId = (oRes as any).insertId;
 
-    // สร้าง order_items
     for (const r of items) {
       const unit = unitFinal(Number(r.price));
       const sub = two(unit * Number(r.qty));
@@ -320,7 +277,6 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
       );
     }
 
-    // ตัดกระเป๋าเงิน (ถ้ามีพอ) + อัปเดตสถานะออเดอร์
     let newBalance: number | null = null;
     let status = 'PENDING';
 
@@ -353,7 +309,6 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
   }
     }
 
-    // บันทึกการใช้คูปอง (ถ้ามี)
     if (codeId) {
       await conn.execute(
         `INSERT INTO code_redemptions (code_id, user_id, order_id)
@@ -366,7 +321,6 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
       );
     }
 
-    // ลบ item ในตะกร้าที่คิดเงินแล้ว
     await conn.execute(
       `DELETE FROM cart_items WHERE user_id=? AND id IN (${itemIds.map(()=>'?').join(',')})`,
       [userId, ...itemIds]

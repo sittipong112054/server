@@ -1,4 +1,3 @@
-// src/routes/store.ts
 import express from "express";
 import pool from "../db";
 
@@ -25,7 +24,7 @@ router.get("/games", async (_req, res) => {
       id: r.id,
       title: r.title,
       price: Number(r.price),
-      genre: r.categoryName, // ใช้แทน genre
+      genre: r.categoryName,
       cover: r.imagePath ? `${PUBLIC_BASE}/${r.imagePath}` : '/assets/placeholder-wide.jpg',
       description: r.description,
       releasedAt: r.releasedAt,

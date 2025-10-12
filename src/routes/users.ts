@@ -52,7 +52,7 @@ router.post(
         process.env.PUBLIC_BASE_URL ?? "http://localhost:3002";
       res.json({
         ok: true,
-        avatarUrl: `${PUBLIC_BASE}/${relative}`, // ✅ ส่ง URL เต็มกลับ Angular
+        avatarUrl: `${PUBLIC_BASE}/${relative}`,
       });
     } catch (e) {
       console.error("[users.me/avatar POST] error", e);
@@ -86,10 +86,9 @@ router.get("/me", requireAuth, async (req, res) => {
   }
 });
 
-// src/routes/users.ts
 router.put("/me", requireAuth, async (req, res) => {
   try {
-    const me = (req as any).user; // มาจาก requireAuth
+    const me = (req as any).user;
     const { username, email } = req.body ?? {};
 
     if (username && typeof username !== "string") {
@@ -114,7 +113,6 @@ router.put("/me", requireAuth, async (req, res) => {
   }
 });
 
-// ลบรูปโปรไฟล์ตัวเอง (กลับไปใช้ default)
 router.delete("/me/avatar", requireAuth, async (req, res) => {
   try {
     const me = (req as any).user;
@@ -218,10 +216,7 @@ router.delete("/:id/avatar", requireAdmin, async (req, res) => {
   }
 });
 
-// ===============================
 //  GET: ประวัติธุรกรรมของผู้ใช้ (20 รายการล่าสุด)
-// ===============================
-// TOPUP
 router.post("/me/wallet/topup", requireAuth, async (req, res) => {
   const me = (req as any).user;
   let { amount } = req.body || {};
@@ -235,14 +230,11 @@ router.post("/me/wallet/topup", requireAuth, async (req, res) => {
   try {
     await conn.beginTransaction();
 
-    // 1) บวกยอด
     await conn.execute(
       "UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?",
       [amount, me.id]
     );
 
-    
-    // 2) ดึงยอดใหม่เพื่อใช้เป็น balance_after
     const [rows] = await conn.execute<any[]>(
       "SELECT wallet_balance FROM users WHERE id = ?",
       [me.id]
@@ -250,7 +242,6 @@ router.post("/me/wallet/topup", requireAuth, async (req, res) => {
 
     const wallet = rows.length > 0 ? Number(rows[0].wallet_balance) : 0;
 
-    // 3) บันทึกธุรกรรม (ตาราง wallet_transactions ไม่มีคอลัมน์ title)
     await conn.execute(
       `INSERT INTO wallet_transactions
        (user_id, type, amount, balance_after, ref_order_id, note)
@@ -269,8 +260,6 @@ router.post("/me/wallet/topup", requireAuth, async (req, res) => {
   }
 });
 
-
-// ประวัติธุรกรรมล่าสุด
 router.get("/me/wallet/transactions", requireAuth, async (req, res) => {
   const me = (req as any).user;
   try {
@@ -314,8 +303,6 @@ router.post('/me/wallet/charge', requireAuth, async (req, res) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-
-    // 1) เกม + ราคา + สถานะ
     const [gRows] = await conn.execute(
       `SELECT id, title, price, status FROM games WHERE id = ? FOR UPDATE`,
       [gameId]
@@ -326,7 +313,6 @@ router.post('/me/wallet/charge', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Game not available' });
     }
 
-    // 2) กันซื้อซ้ำ
     const [ownRows] = await conn.execute(
       `SELECT 1 FROM user_games WHERE user_id = ? AND game_id = ? LIMIT 1`,
       [me.id, gameId]
@@ -336,7 +322,6 @@ router.post('/me/wallet/charge', requireAuth, async (req, res) => {
       return res.status(409).json({ error: 'Already owned' });
     }
 
-    // 3) เช็คยอดคงเหลือ
     const total = Number(game.price) * qty;
 
     const [uRows] = await conn.execute(
@@ -349,14 +334,12 @@ router.post('/me/wallet/charge', requireAuth, async (req, res) => {
       return res.status(402).json({ error: 'Insufficient balance' });
     }
 
-    // 4) หักเงิน + บันทึก tx
     const newBal = +(bal - total).toFixed(2);
     await conn.execute(
       `UPDATE users SET wallet_balance = ? WHERE id = ?`,
       [newBal, me.id]
     );
 
-    // 5) สร้าง order + order_items
     const [oRes] = await conn.execute(
       `INSERT INTO orders (user_id, total_before_discount, discount_amount, total_paid, status)
        VALUES (?, ?, 0.00, ?, 'PAID')`,
@@ -370,13 +353,11 @@ router.post('/me/wallet/charge', requireAuth, async (req, res) => {
       [orderId, gameId, game.price, qty, total]
     );
 
-    // 6) ให้สิทธิ์ครอบครองเกม
     await conn.execute(
       `INSERT INTO user_games (user_id, game_id) VALUES (?, ?)`,
       [me.id, gameId]
     );
 
-    // 7) บันทึก wallet tx
     await conn.execute(
       `INSERT INTO wallet_transactions (user_id, type, amount, balance_after, ref_order_id, note)
        VALUES (?, 'PURCHASE', ?, ?, ?, ?)`,
@@ -394,7 +375,6 @@ router.post('/me/wallet/charge', requireAuth, async (req, res) => {
   }
 });
 
-// src/routes/admin/users.ts
 router.get("/users", requireAuth, requireAdmin, async (_req, res) => {
   const [rows] = await pool.execute<any[]>(
     `SELECT id, username, email,

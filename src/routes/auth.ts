@@ -1,4 +1,3 @@
-// src/routes/auth.ts
 import { Router, Request, Response } from "express";
 import pool from "../db";
 import bcrypt from "bcrypt";

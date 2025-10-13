@@ -54,6 +54,14 @@ router.post('/', requireAuth, async (req: any, res) => {
     return res.status(400).json({ ok: false, error: 'invalid payload' });
   }
 
+    const [own] = await pool.execute<any[]>(
+    `SELECT 1 FROM user_games WHERE user_id=? AND game_id=? LIMIT 1`,
+    [userId, gameId]
+  );
+  if (own.length) {
+    return res.status(409).json({ ok:false, error:'already owned' });
+  }
+
   await pool.execute(
     `INSERT INTO cart_items (user_id, game_id, qty)
      VALUES (?, ?, ?)
@@ -140,7 +148,7 @@ router.delete('/:itemId', requireAuth, async (req: any, res) => {
 
 router.post('/validate-coupon', requireAuth, async (req, res) => {
   const { code, subtotal = 0 } = req.body;
-  if (!code) return res.status(400).json({ ok: false, error: 'missing code' });
+  if (!code) return res.status(400).json({ ok:false, code:'INVALID', error:'missing code' });
 
   const now = new Date();
 
@@ -152,43 +160,43 @@ router.post('/validate-coupon', requireAuth, async (req, res) => {
     [code]
   );
   const dc = (rows as any[])[0];
-  if (!dc) return res.status(404).json({ ok: false, error: 'coupon not found' });
-  if (!dc.active) return res.status(400).json({ ok: false, error: 'inactive coupon' });
+  if (!dc) return res.status(404).json({ ok:false, code:'INVALID', error:'coupon not found' });
+  if (!dc.active) return res.status(400).json({ ok:false, code:'INACTIVE', error:'inactive coupon' });
 
   if (dc.start_at && now < new Date(dc.start_at)) {
-    return res.status(400).json({ ok: false, error: 'coupon not started' });
+    return res.status(400).json({ ok:false, code:'NOT_STARTED', error:'coupon not started' });
   }
   if (dc.end_at && now > new Date(dc.end_at)) {
-    return res.status(400).json({ ok: false, error: 'coupon expired' });
+    return res.status(400).json({ ok:false, code:'EXPIRED', error:'coupon expired' });
   }
 
   if (dc.max_uses && Number(dc.used_count) >= Number(dc.max_uses)) {
-    return res.status(400).json({ ok: false, error: 'coupon exhausted' });
+    return res.status(400).json({ ok:false, code:'EXHAUSTED', error:'coupon exhausted' });
   }
 
   const [ur] = await pool.execute(
-    `SELECT COUNT(*) AS used
-       FROM code_redemptions
-      WHERE code_id=? AND user_id=?`,
+    `SELECT COUNT(*) AS used FROM code_redemptions WHERE code_id=? AND user_id=?`,
     [dc.id, (req as any).user.id]
   );
   const used = Number((ur as any[])[0].used || 0);
   if (used >= Number(dc.per_user_limit || 1)) {
-    return res.status(400).json({ ok: false, error: 'user limit reached' });
+    return res.status(400).json({ ok:false, code:'USER_LIMIT', error:'user limit reached' });
   }
 
   const value = Number(dc.discount_value);
   let amount = 0;
   if (dc.discount_type === 'PERCENT') {
-    amount = two((Number(subtotal) || 0) * value / 100);
+    amount = +(((Number(subtotal) || 0) * value) / 100).toFixed(2);
   } else {
-    amount = two(Math.min(value, Number(subtotal) || 0));
+    amount = +Math.min(value, Number(subtotal) || 0).toFixed(2);
+  }
+  if (amount <= 0) {
+    return res.status(400).json({ ok:false, code:'TOO_LOW', error:'subtotal too low' });
   }
 
-  if (amount <= 0) return res.status(400).json({ ok: false, error: 'subtotal too low' });
-
-  res.json({ ok: true, data: { code: dc.code, amount } });
+  res.json({ ok:true, data: { code: dc.code, amount } });
 });
+
 
 router.post('/checkout', requireAuth, async (req: any, res) => {
   const userId = req.user.id;
@@ -202,24 +210,37 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
   try {
     await conn.beginTransaction();
 
-    const [rows] = await conn.execute(
-      `SELECT
-          ci.id AS itemId, ci.qty,
-          g.id AS gameId, g.title, g.price
-       FROM cart_items ci
-       JOIN games g ON g.id = ci.game_id
-       WHERE ci.user_id = ? AND ci.id IN (${itemIds.map(() => '?').join(',')})
-       FOR UPDATE`,
+    const [rows] = await conn.execute<any[]>(
+      `SELECT ci.id AS itemId, ci.qty,
+              g.id AS gameId, g.title, g.price
+         FROM cart_items ci
+         JOIN games g ON g.id = ci.game_id
+        WHERE ci.user_id = ? AND ci.id IN (${itemIds.map(() => '?').join(',')})
+        FOR UPDATE`,
       [userId, ...itemIds]
     );
-    const items = rows as any[];
-    if (items.length === 0) {
+    if (!rows.length) {
       await conn.rollback();
       return res.status(400).json({ ok: false, error: 'items not found' });
     }
 
+    const gameIds = rows.map(r => r.gameId);
+    const [owns] = await conn.execute<any[]>(
+      `SELECT game_id FROM user_games
+        WHERE user_id=? AND game_id IN (${gameIds.map(()=>'?').join(',')})
+        FOR UPDATE`,
+      [userId, ...gameIds]
+    );
+    const ownedSet = new Set(owns.map(r => Number(r.game_id)));
+    const itemsToBuy = rows.filter(r => !ownedSet.has(Number(r.gameId)));
+
+    if (!itemsToBuy.length) {
+      await conn.rollback();
+      return res.status(409).json({ ok:false, error:'all items already owned', owned:[...ownedSet] });
+    }
+
     let subtotal = 0;
-    for (const r of items) {
+    for (const r of itemsToBuy) {
       const unit = unitFinal(Number(r.price));
       subtotal += unit * Number(r.qty);
     }
@@ -229,31 +250,33 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
     let codeId: number | null = null;
 
     if (coupon?.code) {
-      const [cRows] = await conn.execute(
+      const [cRows] = await conn.execute<any[]>(
         `SELECT id, code, discount_type, discount_value, max_uses, per_user_limit,
                 used_count, active, start_at, end_at
            FROM discount_codes
           WHERE code=? FOR UPDATE`,
         [coupon.code]
       );
-      const dc = (cRows as any[])[0];
+      const dc = cRows[0];
       if (!dc) throw new Error('coupon not found');
+
       const now = new Date();
       if (!dc.active) throw new Error('coupon inactive');
       if (dc.start_at && now < new Date(dc.start_at)) throw new Error('coupon not started');
       if (dc.end_at && now > new Date(dc.end_at)) throw new Error('coupon expired');
       if (dc.max_uses && Number(dc.used_count) >= Number(dc.max_uses)) throw new Error('coupon exhausted');
 
-      const [ur] = await conn.execute(
+      const [ur] = await conn.execute<any[]>(
         `SELECT COUNT(*) AS used FROM code_redemptions WHERE code_id=? AND user_id=?`,
         [dc.id, userId]
       );
-      const used = Number((ur as any[])[0].used || 0);
+      const used = Number(ur[0]?.used || 0);
       if (used >= Number(dc.per_user_limit || 1)) throw new Error('user limit reached');
 
       const val = Number(dc.discount_value);
-      if (dc.discount_type === 'PERCENT') discount = two(subtotal * val / 100);
-      else discount = two(Math.min(val, subtotal));
+      discount = dc.discount_type === 'PERCENT'
+        ? two(subtotal * val / 100)
+        : two(Math.min(val, subtotal));
 
       codeId = dc.id;
     }
@@ -267,7 +290,7 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
     );
     const orderId = (oRes as any).insertId;
 
-    for (const r of items) {
+    for (const r of itemsToBuy) {
       const unit = unitFinal(Number(r.price));
       const sub = two(unit * Number(r.qty));
       await conn.execute(
@@ -277,21 +300,16 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
       );
     }
 
-    let newBalance: number | null = null;
-    let status = 'PENDING';
-
-    const [uRows] = await conn.execute(
+    let status: 'PENDING' | 'PAID' = 'PENDING';
+    const [uRows] = await conn.execute<any[]>(
       `SELECT wallet_balance FROM users WHERE id=? FOR UPDATE`,
       [userId]
     );
-    const curBal = Number((uRows as any[])[0].wallet_balance || 0);
+    const curBal = Number(uRows[0]?.wallet_balance || 0);
 
     if (curBal >= total) {
-      newBalance = two(curBal - total);
-      await conn.execute(
-        `UPDATE users SET wallet_balance=? WHERE id=?`,
-        [newBalance, userId]
-      );
+      const newBalance = two(curBal - total);
+      await conn.execute(`UPDATE users SET wallet_balance=? WHERE id=?`, [newBalance, userId]);
       await conn.execute(
         `INSERT INTO wallet_transactions (user_id, type, amount, balance_after, ref_order_id, note)
          VALUES (?, 'PURCHASE', ?, ?, ?, ?)`,
@@ -300,19 +318,16 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
       await conn.execute(`UPDATE orders SET status='PAID' WHERE id=?`, [orderId]);
       status = 'PAID';
 
-      for (const r of items) {
-    await conn.execute(
-      `INSERT IGNORE INTO user_games (user_id, game_id, purchased_at)
-       VALUES (?, ?, NOW())`,
-      [userId, r.gameId]
-    );
-  }
+      const values = itemsToBuy.map(() => '(?, ?, NOW())').join(',');
+      await conn.execute(
+        `INSERT IGNORE INTO user_games (user_id, game_id, purchased_at) VALUES ${values}`,
+        itemsToBuy.flatMap(r => [userId, r.gameId])
+      );
     }
 
     if (codeId) {
       await conn.execute(
-        `INSERT INTO code_redemptions (code_id, user_id, order_id)
-         VALUES (?, ?, ?)`,
+        `INSERT INTO code_redemptions (code_id, user_id, order_id) VALUES (?, ?, ?)`,
         [codeId, userId, orderId]
       );
       await conn.execute(
@@ -327,7 +342,13 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
     );
 
     await conn.commit();
-    return res.json({ ok: true, orderId, status, total });
+    return res.json({
+      ok: true,
+      orderId,
+      status,
+      total,
+      skipped: [...ownedSet] 
+    });
   } catch (e: any) {
     await conn.rollback();
     console.error('[cart checkout] error:', e);
@@ -336,5 +357,6 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
     conn.release();
   }
 });
+
 
 export default router;

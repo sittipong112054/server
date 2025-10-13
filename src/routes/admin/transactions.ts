@@ -4,7 +4,6 @@ import { requireAuth, requireAdmin } from "../../middlewares/authMiddleware";
 
 const router = Router();
 
-// GET /admin/users/:userId/transactions
 router.get("/users/:userId/transactions", requireAuth, requireAdmin, async (req, res) => {
   const userId = Number(req.params.userId);
   if (!Number.isFinite(userId)) return res.status(400).json({ error: "Invalid userId" });

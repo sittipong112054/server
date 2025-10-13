@@ -4,11 +4,9 @@ import { requireAuth, requireAdmin } from "../../middlewares/authMiddleware";
 
 const router = Router();
 
-// GET /admin/users/:userId/transactions/summary
 router.get("/users/:userId/transactions/summary", requireAuth, requireAdmin, async (req, res) => {
   const userId = Number(req.params.userId);
 
-  // ก่อนดึงสรุป/ธุรกรรม เช็คบทบาทของ target user
 const [u] = await pool.execute<any[]>(
   `SELECT role FROM \`${DB_SCHEMA}\`.users WHERE id = ? LIMIT 1`,
   [userId]

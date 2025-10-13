@@ -15,6 +15,8 @@ import adminTxRouter from "./routes/admin/transactions";
 import adminTxSummaryRouter from "./routes/admin/transactions.summary";
 import cart from "./routes/cart";
 import meRouter from './routes/me';
+import adminDiscountRoutes from './routes/admin/discount-codes';
+import adminRankingsRoutes from './routes/admin/rankings'; 
 
 const app = express();
 
@@ -76,9 +78,11 @@ app.use("/admin", adminTxSummaryRouter);
 
 app.use("/admin/games", adminGamesRouter);
 app.use("/games", publicGamesRouter);
+app.use('/admin', adminDiscountRoutes);
 
 app.use('/me', meRouter);
 
+app.use('/admin', adminRankingsRoutes);
 app.use('/cart', cart);
 
 app.use("/", store);

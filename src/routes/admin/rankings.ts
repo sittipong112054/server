@@ -1,6 +1,5 @@
 import express from "express";
 import pool from "../../db";
-import { requireAuth, requireAdmin } from "../../middlewares/authMiddleware";
 
 const router = express.Router();
 
@@ -8,87 +7,117 @@ const PUBLIC_BASE = process.env.PUBLIC_BASE_URL ?? "http://localhost:3002";
 const toUrl = (p?: string | null) =>
   p ? `${PUBLIC_BASE}/${String(p).replace(/^\/?/, "")}` : null;
 
-function parseDate(s: unknown, def: Date) {
-  if (!s) return def;
+function parseDateMaybe(s: unknown): Date | undefined {
+  if (!s) return undefined;
   const d = new Date(String(s));
-  return Number.isNaN(d.getTime()) ? def : d;
+  return Number.isNaN(d.getTime()) ? undefined : d;
 }
+const ymd = (d: Date) => d.toISOString().slice(0, 10);
 
-function ymd(d: Date) {
-  return d.toISOString().slice(0, 10);
-}
-
-router.get('/rankings/top', requireAuth, requireAdmin, async (req, res) => {
+router.get("/top", async (req, res) => {
   try {
-    const now = new Date();
-    const start = parseDate(req.query.start, new Date(now.getFullYear(), now.getMonth(), now.getDate()));
-    const end   = parseDate(req.query.end,   now);
-    const startStr = ymd(start);
-    const endStr   = ymd(end);
+    const startDate = parseDateMaybe(req.query.start);
+    const endDate = parseDateMaybe(req.query.end);
 
-    const sort  = String(req.query.sort || 'qty').toLowerCase() === 'revenue' ? 'revenue' : 'qty';
-    const limit = Math.max(1, Math.min(50, Number(req.query.limit ?? 5)));
+    const sortParam = String(req.query.sort || "qty").toLowerCase();
+    const sort = sortParam === "revenue" ? "revenue" : "qty_sold";
+    const limit = Math.max(1, Math.min(100, Number(req.query.limit ?? 100)));
 
-    console.log(`[rankings/top] start=${startStr}, end=${endStr}, limit=${limit}, sort=${sort}`);
+    let where = `WHERE o.status = 'PAID'`;
+    const params: any[] = [];
 
-    const [rows] = await pool.execute<any[]>(
-      `
+    if (startDate && endDate) {
+      where += ` AND DATE(o.created_at) BETWEEN ? AND ?`;
+      params.push(ymd(startDate), ymd(endDate));
+    } else if (startDate) {
+      where += ` AND DATE(o.created_at) >= ?`;
+      params.push(ymd(startDate));
+    } else if (endDate) {
+      where += ` AND DATE(o.created_at) <= ?`;
+      params.push(ymd(endDate));
+    }
+
+    const sql = `
       SELECT
-        g.id             AS gameId,
-        g.title          AS title,
-        g.image_path     AS imagePath,
-        SUM(oi.qty)      AS qty_sold,
-        SUM(oi.subtotal) AS revenue
+        g.id                               AS gameId,
+        g.title                            AS title,
+        g.image_path                       AS imagePath,
+        COALESCE(SUM(oi.qty), 0)           AS qty_sold,
+        COALESCE(SUM(oi.subtotal), 0)      AS revenue
       FROM orders o
       JOIN order_items oi ON oi.order_id = o.id
       JOIN games g        ON g.id = oi.game_id
-      WHERE o.status = 'PAID'
-        AND DATE(o.created_at) BETWEEN ? AND ?
+      ${where}
       GROUP BY g.id, g.title, g.image_path
-      ORDER BY ${sort === 'revenue' ? 'revenue DESC' : 'qty_sold DESC'}
+      ORDER BY ${sort} DESC
       LIMIT ${limit}
-      `,
-      [startStr, endStr]
-    );
+    `;
 
-    const data = rows.map(r => ({
+    const [rows] = await pool.execute<any[]>(sql, params);
+
+    const data = (rows || []).map((r, i) => ({
       gameId: Number(r.gameId),
       title: r.title,
       cover: toUrl(r.imagePath),
       qty: Number(r.qty_sold || 0),
       revenue: Number(r.revenue || 0),
+      rank: i + 1,
     }));
 
-    return res.json({ ok: true, data, start: startStr, end: endStr, sort });
+    res.json({
+      ok: true,
+      data,
+      start: startDate ? ymd(startDate) : null,
+      end: endDate ? ymd(endDate) : null,
+      sort: sort === "revenue" ? "revenue" : "qty",
+    });
   } catch (e) {
-    console.error('[rankings/top] error', e);
-    return res.status(500).json({ ok: false, error: 'server error' });
+    console.error("[public rankings/top] error", e);
+    res.status(500).json({ ok: false, error: "server error" });
   }
 });
 
-
-router.get("/rankings/kpis", requireAuth, requireAdmin, async (req, res) => {
+router.get("/kpis", async (req, res) => {
   try {
-    const now = new Date();
-    const start = parseDate(
-      req.query.start,
-      new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    );
-    const end = parseDate(req.query.end, now);
-    const startStr = ymd(start);
-    const endStr = ymd(end);
+    const startDate = parseDateMaybe(req.query.start);
+    const endDate = parseDateMaybe(req.query.end);
+
+    let whereOrders = `WHERE status='PAID'`;
+    let whereItems = `WHERE o.status='PAID'`;
+    const paramsA: any[] = [];
+    const paramsB: any[] = [];
+    const paramsTop: any[] = [];
+
+    if (startDate && endDate) {
+      whereOrders += ` AND DATE(created_at) BETWEEN ? AND ?`;
+      whereItems += ` AND DATE(o.created_at) BETWEEN ? AND ?`;
+      paramsA.push(ymd(startDate), ymd(endDate));
+      paramsB.push(ymd(startDate), ymd(endDate));
+      paramsTop.push(ymd(startDate), ymd(endDate));
+    } else if (startDate) {
+      whereOrders += ` AND DATE(created_at) >= ?`;
+      whereItems += ` AND DATE(o.created_at) >= ?`;
+      paramsA.push(ymd(startDate));
+      paramsB.push(ymd(startDate));
+      paramsTop.push(ymd(startDate));
+    } else if (endDate) {
+      whereOrders += ` AND DATE(created_at) <= ?`;
+      whereItems += ` AND DATE(o.created_at) <= ?`;
+      paramsA.push(ymd(endDate));
+      paramsB.push(ymd(endDate));
+      paramsTop.push(ymd(endDate));
+    }
 
     const [revRows] = await pool.execute<any[]>(
       `
       SELECT
-        COALESCE(SUM(total_paid),0)          AS total_revenue,
-        COUNT(*)                              AS orders_count,
-        COALESCE(AVG(total_paid),0)          AS avg_order_value
+        COALESCE(SUM(total_paid),0) AS total_revenue,
+        COUNT(*)                    AS orders_count,
+        COALESCE(AVG(total_paid),0) AS avg_order_value
       FROM orders
-      WHERE status='PAID'
-        AND DATE(created_at) BETWEEN ? AND ?
+      ${whereOrders}
       `,
-      [startStr, endStr]
+      paramsA
     );
 
     const [qtyRows] = await pool.execute<any[]>(
@@ -96,11 +125,13 @@ router.get("/rankings/kpis", requireAuth, requireAdmin, async (req, res) => {
       SELECT COALESCE(SUM(oi.qty),0) AS total_sales_qty
       FROM orders o
       JOIN order_items oi ON oi.order_id = o.id
-      WHERE o.status='PAID'
-        AND DATE(o.created_at) BETWEEN ? AND ?
+      ${whereItems}
       `,
-      [startStr, endStr]
+      paramsB
     );
+
+    // ORDER BY qty_sold DESC     -- เรียงตามจำนวนยอดขาย
+    // ORDER BY revenue DESC      -- เรียงตามรายได้รวม
 
     const [topRows] = await pool.execute<any[]>(
       `
@@ -109,13 +140,12 @@ router.get("/rankings/kpis", requireAuth, requireAdmin, async (req, res) => {
       FROM orders o
       JOIN order_items oi ON oi.order_id = o.id
       JOIN games g ON g.id = oi.game_id
-      WHERE o.status='PAID'
-        AND DATE(o.created_at) BETWEEN ? AND ?
+      ${whereItems}
       GROUP BY g.id, g.title
       ORDER BY qty_sold DESC
       LIMIT 1
       `,
-      [startStr, endStr]
+      paramsTop
     );
 
     const r1 = revRows[0] || {
@@ -126,7 +156,7 @@ router.get("/rankings/kpis", requireAuth, requireAdmin, async (req, res) => {
     const q1 = qtyRows[0] || { total_sales_qty: 0 };
     const t1 = topRows[0] || null;
 
-    return res.json({
+    res.json({
       ok: true,
       data: {
         totalRevenue: Number(r1.total_revenue || 0),
@@ -141,12 +171,12 @@ router.get("/rankings/kpis", requireAuth, requireAdmin, async (req, res) => {
             }
           : null,
       },
-      start: startStr,
-      end: endStr,
+      start: startDate ? ymd(startDate) : null,
+      end: endDate ? ymd(endDate) : null,
     });
   } catch (e) {
-    console.error("[rankings/kpis] error:", e);
-    return res.status(500).json({ ok: false, error: "server error" });
+    console.error("[public rankings/kpis] error:", e);
+    res.status(500).json({ ok: false, error: "server error" });
   }
 });
 

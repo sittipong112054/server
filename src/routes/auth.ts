@@ -5,8 +5,6 @@ import crypto, { hash } from "crypto";
 import path from "path";
 import multer from "multer";
 import fs from "fs";
-import { avatarUpload } from "../middlewares/upload";
-import { id } from "zod/locales";
 
 const router = Router();
 

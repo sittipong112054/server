@@ -80,6 +80,14 @@ function validate(b: Partial<Body>) {
 
 // ---------- LIST ----------
 router.get("/discount-codes", requireAuth, requireAdmin, async (_req, res) => {
+  // ⬇️ ปิดใช้งานโค้ดที่หมดอายุ/ใช้ครบแล้ว (maintenance แบบเบา)
+  await pool.execute(`
+    UPDATE discount_codes
+    SET active = 0
+    WHERE (end_at IS NOT NULL AND end_at < NOW())
+       OR (max_uses IS NOT NULL AND used_count >= max_uses)
+  `);
+
   const [rows] = await pool.execute(`
     SELECT id, code, description, discount_type, discount_value,
            max_uses, per_user_limit, used_count, active,
@@ -213,11 +221,54 @@ router.delete(
   requireAuth,
   requireAdmin,
   async (req, res) => {
-    await pool.execute(`DELETE FROM discount_codes WHERE id=?`, [
-      req.params.id,
-    ]);
-    res.json({ ok: true });
+    const id = req.params.id;
+
+    try {
+      // 1) เช็คว่ามีโค้ดไหม + เช็ค used_count
+      const [rows] = await pool.execute(
+        "SELECT id, used_count FROM discount_codes WHERE id=? LIMIT 1",
+        [id]
+      );
+      const cur = (rows as any[])[0];
+      if (!cur) return res.status(404).json({ ok: false, error: "not found" });
+
+      // 2) ถ้าเคยถูกใช้แล้ว ห้ามลบ
+      if (Number(cur.used_count) > 0) {
+        return res
+          .status(400)
+          .json({ ok: false, error: "cannot delete a code that has been used" });
+      }
+
+      // 3) ยังไม่เคยใช้ -> ลบได้: ลบลูกก่อน แล้วลบพาเรนต์ โดยทำใน transaction
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+
+        await conn.execute(
+          "DELETE FROM code_redemptions WHERE code_id=?",
+          [id]
+        );
+
+        await conn.execute(
+          "DELETE FROM discount_codes WHERE id=?",
+          [id]
+        );
+
+        await conn.commit();
+        conn.release();
+        return res.json({ ok: true });
+      } catch (e) {
+        try { await (conn as any).rollback(); } catch {}
+        try { (conn as any).release(); } catch {}
+        console.error("[dc delete tx]", e);
+        return res.status(500).json({ ok: false, error: "server error" });
+      }
+    } catch (e) {
+      console.error("[dc delete]", e);
+      return res.status(500).json({ ok: false, error: "server error" });
+    }
   }
 );
+
 
 export default router;

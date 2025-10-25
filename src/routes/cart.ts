@@ -323,23 +323,24 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
         `INSERT IGNORE INTO user_games (user_id, game_id, purchased_at) VALUES ${values}`,
         itemsToBuy.flatMap(r => [userId, r.gameId])
       );
-    }
 
-    if (codeId) {
+      if (codeId) {
+        await conn.execute(
+          `INSERT INTO code_redemptions (code_id, user_id, order_id, used_at)
+           VALUES (?, ?, ?, NOW())`,
+          [codeId, userId, orderId]
+        );
+        await conn.execute(
+          `UPDATE discount_codes SET used_count = used_count + 1 WHERE id=?`,
+          [codeId]
+        );
+      }
       await conn.execute(
-        `INSERT INTO code_redemptions (code_id, user_id, order_id) VALUES (?, ?, ?)`,
-        [codeId, userId, orderId]
+        `DELETE FROM cart_items WHERE user_id=? AND id IN (${itemIds.map(()=>'?').join(',')})`,
+        [userId, ...itemIds]
       );
-      await conn.execute(
-        `UPDATE discount_codes SET used_count = used_count + 1 WHERE id=?`,
-        [codeId]
-      );
+    } else {
     }
-
-    await conn.execute(
-      `DELETE FROM cart_items WHERE user_id=? AND id IN (${itemIds.map(()=>'?').join(',')})`,
-      [userId, ...itemIds]
-    );
 
     await conn.commit();
     return res.json({
@@ -347,7 +348,7 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
       orderId,
       status,
       total,
-      skipped: [...ownedSet] 
+      skipped: [...ownedSet]
     });
   } catch (e: any) {
     await conn.rollback();
@@ -357,6 +358,7 @@ router.post('/checkout', requireAuth, async (req: any, res) => {
     conn.release();
   }
 });
+
 
 
 export default router;

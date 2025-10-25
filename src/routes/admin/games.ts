@@ -31,7 +31,6 @@ const upload = multer({
 
 const toUrl = (p?: string | null) => (p ? `${PUBLIC_BASE}/${p}` : null);
 
-// ✅ GET /admin/games — ดึงเกมทั้งหมดพร้อมชื่อหมวด
 router.get("/",requireAuth, requireAdmin, async (_req, res) => {
   try {
     const [rows] = await pool.execute(`
@@ -66,18 +65,21 @@ router.get("/",requireAuth, requireAdmin, async (_req, res) => {
   }
 });
 
-// ✅ POST /admin/games — เพิ่มเกมใหม่
-router.post("/",requireAuth, requireAdmin, upload.single("image"), async (req, res) => {
+router.post("/", requireAuth, requireAdmin, upload.single("image"), async (req, res) => {
   try {
     const { title, price, categoryId, description, releasedAt } = req.body;
     const imagePath = req.file
       ? `uploads/games/${req.file.filename}`.replace(/\\/g, "/")
       : null;
 
+    const releaseTime = releasedAt && releasedAt.trim() !== ""
+      ? new Date(releasedAt)
+      : new Date();
+
     await pool.execute(
       `INSERT INTO games (title, price, category_id, image_path, description, released_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [title, price, categoryId, imagePath, description, releasedAt || new Date()]
+      [title, price, categoryId, imagePath, description || null, releaseTime]
     );
 
     res.json({ ok: true });
@@ -87,14 +89,18 @@ router.post("/",requireAuth, requireAdmin, upload.single("image"), async (req, r
   }
 });
 
-router.put('/:id', requireAuth, requireAdmin, upload.single('image'), async (req, res) => {
+router.put("/:id", requireAuth, requireAdmin, upload.single("image"), async (req, res) => {
   try {
     const { id } = req.params;
     const { title, price, categoryId, description, releasedAt } = req.body;
 
+    const releaseTime = releasedAt && releasedAt.trim() !== ""
+      ? new Date(releasedAt)
+      : new Date();
+
     let sql = `UPDATE games
                SET title=?, price=?, category_id=?, description=?, released_at=?`;
-    const params: any[] = [title, price, categoryId, description || null, releasedAt || new Date()];
+    const params: any[] = [title, price, categoryId, description || null, releaseTime];
 
     if (req.file) {
       // ลบรูปเก่า
@@ -104,7 +110,8 @@ router.put('/:id', requireAuth, requireAdmin, upload.single('image'), async (req
         const abs = path.join(process.cwd(), old);
         try { if (fs.existsSync(abs)) fs.unlinkSync(abs); } catch {}
       }
-      const newPath = `uploads/games/${req.file.filename}`.replace(/\\/g, '/');
+
+      const newPath = `uploads/games/${req.file.filename}`.replace(/\\/g, "/");
       sql += `, image_path=?`;
       params.push(newPath);
     }
@@ -115,12 +122,11 @@ router.put('/:id', requireAuth, requireAdmin, upload.single('image'), async (req
     await pool.execute(sql, params);
     res.json({ ok: true });
   } catch (e) {
-    console.error('[admin/games PUT]', e);
-    res.status(500).json({ error: 'Server error' });
+    console.error("[admin/games PUT]", e);
+    res.status(500).json({ error: "Server error" });
   }
 });
 
-// src/routes/admin/games.ts (เติมด้านล่าง near other routes)
 router.get('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;

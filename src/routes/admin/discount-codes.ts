@@ -12,7 +12,7 @@ type Body = {
   max_uses?: number | null;
   per_user_limit?: number | null;
   active?: boolean;
-  start_at?: string | null; // ISO (yyyy-MM-ddTHH:mm)
+  start_at?: string | null;
   end_at?: string | null;
 };
 
@@ -22,7 +22,7 @@ function toNum(n: any, def: number | null = null) {
 }
 
 function isIsoDateTime(s: unknown): boolean {
-  if (s == null || s === "") return true; // ปล่อยว่างได้
+  if (s == null || s === "") return true;
   if (typeof s !== "string") return false;
   const d = new Date(s);
   return !Number.isNaN(d.getTime());
@@ -37,17 +37,13 @@ const toNullIfEmpty = (s: any) => {
 function validate(b: Partial<Body>) {
   const err: string[] = [];
 
-  // code
   if (!b.code || typeof b.code !== "string" || !b.code.trim()) {
     err.push("code is required");
   }
 
-  // type
   if (!b.discount_type || !["PERCENT", "AMOUNT"].includes(b.discount_type)) {
     err.push("discount_type invalid");
   }
-
-  // value
   const val = toNum(b.discount_value, NaN);
   if (!Number.isFinite(val) || val! <= 0) {
     err.push("discount_value invalid");
@@ -56,8 +52,6 @@ function validate(b: Partial<Body>) {
     err.push("percent 1-100");
   }
   
-
-  // max_uses (optional: integer >= 0)
   if (b.max_uses != null) {
     const max = toNum(b.max_uses, NaN);
     if (!Number.isFinite(max) || max! < 0 || !Number.isInteger(max)) {
@@ -65,7 +59,6 @@ function validate(b: Partial<Body>) {
     }
   }
 
-  // per_user_limit (optional: integer >= 1)
   if (b.per_user_limit != null) {
     const lim = toNum(b.per_user_limit, NaN);
     if (!Number.isFinite(lim) || lim! < 1 || !Number.isInteger(lim)) {
@@ -73,19 +66,16 @@ function validate(b: Partial<Body>) {
     }
   }
 
-  // active (optional boolean)
   if (b.active != null && typeof b.active !== "boolean") {
     err.push("active must be boolean");
   }
 
-  // start/end (optional ISO)
   if (!isIsoDateTime(b.start_at)) err.push("start_at invalid");
   if (!isIsoDateTime(b.end_at)) err.push("end_at invalid");
 
   return err;
 }
 
-// ---------- LIST ----------
 router.get("/discount-codes", requireAuth, requireAdmin, async (_req, res) => {
   try {
     await pool.execute(`
@@ -110,7 +100,6 @@ router.get("/discount-codes", requireAuth, requireAdmin, async (_req, res) => {
 });
 
 
-// ---------- GET ONE ----------
 router.get("/discount-codes/:id", requireAuth, requireAdmin, async (req, res) => {
   const id = Number.parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) {
@@ -133,8 +122,6 @@ router.get("/discount-codes/:id", requireAuth, requireAdmin, async (req, res) =>
   }
 });
 
-
-// ---------- CREATE ----------
 router.post("/discount-codes", requireAuth, requireAdmin, async (req, res) => {
   const b: Body = req.body ?? {};
   const errors = validate(b);
@@ -164,7 +151,6 @@ router.post("/discount-codes", requireAuth, requireAdmin, async (req, res) => {
       ]
     );
     const id = result.insertId;
-    // ส่งข้อมูลกลับให้ UI ใช้รีเฟรชแถวได้ทันที
     res.status(201).json({
       ok: true,
       data: {
@@ -189,8 +175,6 @@ router.post("/discount-codes", requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-
-// ---------- UPDATE ----------
 router.put("/discount-codes/:id", requireAuth, requireAdmin, async (req, res) => {
   const id = Number.parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) {
@@ -233,7 +217,6 @@ router.put("/discount-codes/:id", requireAuth, requireAdmin, async (req, res) =>
 });
 
 
-// ---------- DELETE ----------
 router.delete("/discount-codes/:id", requireAuth, requireAdmin, async (req, res) => {
   const id = Number.parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) {

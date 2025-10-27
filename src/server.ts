@@ -93,6 +93,8 @@ app.use("/", store);
 app.use("/auth", authRoutes);
 app.use("/users", usersRouter);
 
-app.listen(3002, () => {
-  console.log("Auth server listening on 3002");
+const port = Number(process.env.PORT) || 3002; 
+app.listen(port, '0.0.0.0', () => {
+  console.log(`Server listening on ${port}`);
 });
+

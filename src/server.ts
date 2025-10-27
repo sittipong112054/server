@@ -20,29 +20,34 @@ import rankingsPublicRouter from './routes/rankings';
 import adminRankingsRoutes from './routes/admin/rankings';
 
 const app = express();
+const isProd = process.env.NODE_ENV === "production";
 
-app.use(
-  cors({
-    origin: "http://localhost:4200",
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "X-Requested-With",
-      "Accept",
-    ],
-    exposedHeaders: ["Content-Disposition"],
-  })
-);
+// ✅ อยู่หลัง proxy (เช่น Render) เพื่อให้ Secure cookie ใช้งานได้
+app.set("trust proxy", 1);
 
-app.options(
-  "*",
-  cors({
-    origin: "http://localhost:4200",
-    credentials: true,
-  })
-);
+// ✅ ระบุ origin ให้ครบ และรองรับทั้ง dev/prod
+const ALLOWED_ORIGINS = [
+  "http://localhost:4200",
+  "https://<YOUR-FRONTEND>.onrender.com", // ใส่โดเมนจริงของ frontend
+];
+
+
+app.use(cors({
+  origin: (origin, cb) => {
+    // อนุญาต no-origin (curl/Postman) และ whitelist ตรง ๆ
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    return cb(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+  methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
+  allowedHeaders: ["Content-Type","Authorization","X-Requested-With","Accept"],
+  exposedHeaders: ["Content-Disposition"],
+}));
+
+app.options("*", cors({
+  origin: ALLOWED_ORIGINS,
+  credentials: true,
+}));
 
 app.get("/", (req, res) => {
   res.send("Hello Game Shop");

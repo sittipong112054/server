@@ -28,7 +28,7 @@ app.set("trust proxy", 1);
 // ✅ ระบุ origin ให้ครบ และรองรับทั้ง dev/prod
 const ALLOWED_ORIGINS = [
   "http://localhost:4200",
-  "https://<YOUR-FRONTEND>.onrender.com", // ใส่โดเมนจริงของ frontend
+  "https://server-1d8o.onrender.com", // ใส่โดเมนจริงของ frontend
 ];
 
 

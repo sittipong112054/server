@@ -9,6 +9,7 @@ import fs from "fs";
 const router = Router();
 
 const PUBLIC_BASE = process.env.PUBLIC_BASE_URL ?? "http://localhost:3002";
+const isProd = process.env.NODE_ENV === "production";
 const COOKIE_NAME = "session_token";
 
 const uploadRoot = path.join(process.cwd(), "uploads");
@@ -36,39 +37,48 @@ const upload = multer({
 
 const makeAvatarUrl = (p?: string | null) => (p ? `${PUBLIC_BASE}/${p}` : null);
 
-router.post("/register", upload.single("avatar"), async (req: Request, res: Response) => {
-  try {
-    const { username, email, password, role } = req.body || {};
-    if (!username || !email || !password) {
-      return res.status(400).json({ error: "Missing fields" });
-    }
+router.post(
+  "/register",
+  upload.single("avatar"),
+  async (req: Request, res: Response) => {
+    try {
+      const { username, email, password, role } = req.body || {};
+      if (!username || !email || !password) {
+        return res.status(400).json({ error: "Missing fields" });
+      }
 
-    const [dup] = await pool.execute(
-      "SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1",
-      [username, email]
-    );
-    if ((dup as any[]).length) {
-      return res.status(409).json({ error: "username or email already taken" });
-    }
+      const [dup] = await pool.execute(
+        "SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1",
+        [username, email]
+      );
+      if ((dup as any[]).length) {
+        return res
+          .status(409)
+          .json({ error: "username or email already taken" });
+      }
 
-    const hash = await bcrypt.hash(password, 12);
-    const avatar_path = req.file ? `uploads/${req.file.filename}`.replace(/\\/g, "/") : null;
-    const userRole = role === "ADMIN" ? "ADMIN" : "USER";
+      const hash = await bcrypt.hash(password, 12);
+      const avatar_path = req.file
+        ? `uploads/${req.file.filename}`.replace(/\\/g, "/")
+        : null;
+      const userRole = role === "ADMIN" ? "ADMIN" : "USER";
 
-    const [result] = await pool.execute(
-      `INSERT INTO users (username, email, password_hash, role, status, avatar_path)
+      const [result] = await pool.execute(
+        `INSERT INTO users (username, email, password_hash, role, status, avatar_path)
        VALUES (?, ?, ?, ?, 'ACTIVE', ?)`,
-      [username, email, hash, userRole, avatar_path]
-    );
+        [username, email, hash, userRole, avatar_path]
+      );
 
-    const id = (result as any).insertId;
-    return res.status(201).json({ id, username, email, avatarUrl: makeAvatarUrl(avatar_path) });
-  } catch (err: any) {
-    console.error("[register] error:", err);
-    return res.status(500).json({ error: "Server error" });
+      const id = (result as any).insertId;
+      return res
+        .status(201)
+        .json({ id, username, email, avatarUrl: makeAvatarUrl(avatar_path) });
+    } catch (err: any) {
+      console.error("[register] error:", err);
+      return res.status(500).json({ error: "Server error" });
+    }
   }
-});
-
+);
 
 router.post("/login", async (req: Request, res: Response) => {
   try {
@@ -110,9 +120,8 @@ router.post("/login", async (req: Request, res: Response) => {
 
     res.cookie(COOKIE_NAME, token, {
       httpOnly: true,
-      sameSite: "lax",
-      secure: false,
-      path: "/",
+      sameSite: isProd ? "none" : "lax",
+      secure: isProd,
       maxAge: 7 * 24 * 3600 * 1000,
     });
 
@@ -154,7 +163,11 @@ router.post("/logout", async (req: Request, res: Response) => {
       ["logout", token]
     );
 
-    res.clearCookie(COOKIE_NAME, { path: "/" });
+    res.clearCookie(COOKIE_NAME, {
+      path: "/",
+      sameSite: isProd ? "none" : "lax",
+      secure: isProd,
+    });
     return res.json({ ok: true });
   } catch (err) {
     console.error("[logout] error:", err);

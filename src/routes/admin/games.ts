@@ -66,6 +66,7 @@ router.get("/",requireAuth, requireAdmin, async (_req, res) => {
 });
 
 router.post("/", requireAuth, requireAdmin, upload.single("image"), async (req, res) => {
+  console.log("[games POST] hasFile =", !!req.file, req.file?.originalname);
   try {
     const { title, price, categoryId, description, releasedAt } = req.body;
     const imagePath = req.file
@@ -90,6 +91,7 @@ router.post("/", requireAuth, requireAdmin, upload.single("image"), async (req, 
 });
 
 router.put("/:id", requireAuth, requireAdmin, upload.single("image"), async (req, res) => {
+  console.log("[games PUT] hasFile =", !!req.file, req.file?.originalname);
   try {
     const { id } = req.params;
     const { title, price, categoryId, description, releasedAt } = req.body;

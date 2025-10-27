@@ -8,10 +8,9 @@ import { requireAuth, requireAdmin } from "../middlewares/authMiddleware";
 const router = express.Router();
 
 const PUBLIC_BASE = process.env.PUBLIC_BASE_URL ?? "http://localhost:3002";
+const RELATIVE_AVATAR = (fileName: string) =>
+  path.join('uploads', 'avatars', fileName).replace(/\\/g, '/');
 
-function toRelativeAvatar(fileName: string) {
-  return path.join("uploads", "avatars", fileName).replace(/\\/g, "/");
-}
 
 function rmIfExists(absPath: string) {
   try {
@@ -21,55 +20,42 @@ function rmIfExists(absPath: string) {
   }
 }
 
-router.post(
-  "/me/avatar",
-  requireAuth,
-  avatarUpload.single("avatar"),
-  async (req, res) => {
-    try {
-      const me = (req as any).user;
-      if (!req.file) return res.status(400).json({ message: "No file" });
+router.post('/me/avatar', requireAuth, avatarUpload.single('avatar'), async (req, res) => {
+  try {
+    const me = (req as any).user;
+    if (!req.file) return res.status(400).json({ message: 'No file' });
 
-      const [rows] = await pool.execute(
-        "SELECT avatar_path FROM users WHERE id = ?",
-        [me.id]
-      );
-      const old = (rows as any[])[0]?.avatar_path as string | null;
-      if (old) {
-        const oldPath = path.join(process.cwd(), old);
-        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-      }
 
-      const relative = path
-        .join("uploads", "avatars", req.file.filename)
-        .replace(/\\/g, "/");
-      await pool.execute("UPDATE users SET avatar_path = ? WHERE id = ?", [
-        relative,
-        me.id,
-      ]);
+    const [rows] = await pool.execute(
+      'SELECT avatar_path FROM users WHERE id = ?',
+      [me.id]
+    );
+    const old = (rows as any[])[0]?.avatar_path as string | null;
+    if (old) rmIfExists(path.join(process.cwd(), old));
 
-      const PUBLIC_BASE =
-        process.env.PUBLIC_BASE_URL ?? "http://localhost:3002";
-      res.json({
-        ok: true,
-        avatarUrl: `${PUBLIC_BASE}/${relative}`,
-      });
-    } catch (e) {
-      console.error("[users.me/avatar POST] error", e);
-      res.status(500).json({ message: "Server error" });
-    }
+    const relative = RELATIVE_AVATAR(req.file.filename);
+    await pool.execute('UPDATE users SET avatar_path = ? WHERE id = ?', [
+      relative,
+      me.id,
+    ]);
+
+    res.json({ ok: true, avatarUrl: `${PUBLIC_BASE}/${relative}` });
+  } catch (e) {
+    console.error('[users.me/avatar POST] error', e);
+    res.status(500).json({ message: 'Server error' });
   }
-);
+});
 
-router.get("/me", requireAuth, async (req, res) => {
+router.get('/me', requireAuth, async (req, res) => {
   try {
     const me = (req as any).user;
     const [rows] = await pool.execute(
-      "SELECT id, username, email, wallet_balance, avatar_path FROM users WHERE id = ?",
+      'SELECT id, username, email, wallet_balance, avatar_path FROM users WHERE id = ?',
       [me.id]
     );
     const u = (rows as any[])[0];
-    const PUBLIC_BASE = process.env.PUBLIC_BASE_URL ?? "http://localhost:3002";
+    if (!u) return res.status(404).json({ message: 'User not found' });
+
     res.json({
       ok: true,
       user: {
@@ -81,121 +67,117 @@ router.get("/me", requireAuth, async (req, res) => {
       },
     });
   } catch (e) {
-    console.error("[users/me GET] error", e);
-    res.status(500).json({ message: "Server error" });
+    console.error('[users/me GET] error', e);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-router.put("/me", requireAuth, async (req, res) => {
+router.put('/me', requireAuth, async (req, res) => {
   try {
     const me = (req as any).user;
     const { username, email } = req.body ?? {};
 
-    if (username && typeof username !== "string") {
-      return res.status(400).json({ message: "Invalid username" });
+    if (username && typeof username !== 'string') {
+      return res.status(400).json({ message: 'Invalid username' });
     }
-    if (email && typeof email !== "string") {
-      return res.status(400).json({ message: "Invalid email" });
+    if (email && typeof email !== 'string') {
+      return res.status(400).json({ message: 'Invalid email' });
     }
 
     await pool.execute(
       `UPDATE users
-       SET username = COALESCE(?, username),
-           email    = COALESCE(?, email)
+         SET username = COALESCE(?, username),
+             email    = COALESCE(?, email)
        WHERE id = ?`,
       [username ?? null, email ?? null, me.id]
     );
 
-    return res.json({ ok: true });
-  } catch (e) {
-    console.error("[users/me PUT] error", e);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-router.delete("/me/avatar", requireAuth, async (req, res) => {
-  try {
-    const me = (req as any).user;
-    const [rows] = await pool.execute(
-      "SELECT avatar_path FROM users WHERE id = ?",
-      [me.id]
-    );
-    const cur = (rows as any[])[0]?.avatar_path as string | null;
-    if (cur) rmIfExists(path.join(process.cwd(), cur));
-    await pool.execute("UPDATE users SET avatar_path = NULL WHERE id = ?", [
-      me.id,
-    ]);
     res.json({ ok: true });
   } catch (e) {
-    console.error("[users.me/avatar DELETE] error", e);
-    res.status(500).json({ message: "Server error" });
+    console.error('[users/me PUT] error', e);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-router.put("/:id", requireAdmin, async (req, res) => {
+// router.delete('/me/avatar', requireAuth, async (req, res) => {
+//   try {
+//     const me = (req as any).user;
+
+//     const [rows] = await pool.execute(
+//       'SELECT avatar_path FROM users WHERE id = ?',
+//       [me.id]
+//     );
+//     const cur = (rows as any[])[0]?.avatar_path as string | null;
+//     if (cur) rmIfExists(path.join(process.cwd(), cur));
+
+//     await pool.execute('UPDATE users SET avatar_path = NULL WHERE id = ?', [me.id]);
+//     res.json({ ok: true });
+//   } catch (e) {
+//     console.error('[users.me/avatar DELETE] error', e);
+//     res.status(500).json({ message: 'Server error' });
+//   }
+// });
+
+router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { username, email, role, status } = req.body ?? {};
 
-    if (email && typeof email !== "string") {
-      return res.status(400).json({ message: "Invalid email" });
+    if (email && typeof email !== 'string') {
+      return res.status(400).json({ message: 'Invalid email' });
     }
-    if (username && typeof username !== "string") {
-      return res.status(400).json({ message: "Invalid fusername" });
+    if (username && typeof username !== 'string') {
+      return res.status(400).json({ message: 'Invalid username' });
     }
-    if (role && !["USER", "ADMIN"].includes(role)) {
-      return res.status(400).json({ message: "Invalid role" });
+    if (role && !['USER', 'ADMIN'].includes(role)) {
+      return res.status(400).json({ message: 'Invalid role' });
     }
-    if (status && !["ACTIVE", "INACTIVE"].includes(status)) {
-      return res.status(400).json({ message: "Invalid status" });
+    if (status && !['ACTIVE', 'INACTIVE'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid status' });
     }
 
     await pool.execute(
       `UPDATE users
-     SET username = COALESCE(?, username),
-         email    = COALESCE(?, email),
-         role     = COALESCE(?, role),
-         status   = COALESCE(?, status)
-   WHERE id = ?`,
+         SET username = COALESCE(?, username),
+             email    = COALESCE(?, email),
+             role     = COALESCE(?, role),
+             status   = COALESCE(?, status)
+       WHERE id = ?`,
       [username ?? null, email ?? null, role ?? null, status ?? null, id]
     );
 
     res.json({ ok: true });
   } catch (e) {
-    console.error("[admin users/:id PUT] error", e);
-    res.status(500).json({ message: "Server error" });
+    console.error('[admin users/:id PUT] error', e);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-router.post(
-  "/:id/avatar",
-  requireAdmin,
-  avatarUpload.single("avatar"),
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      if (!req.file) return res.status(400).json({ message: "No file" });
+router.post('/:id/avatar', requireAuth, requireAdmin, avatarUpload.single('avatar'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!req.file) return res.status(400).json({ message: 'No file' });
 
-      const [rows] = await pool.execute(
-        "SELECT avatar_path FROM users WHERE id = ?",
-        [id]
-      );
-      const old = (rows as any[])[0]?.avatar_path as string | null;
-      if (old) rmIfExists(path.join(process.cwd(), old));
+    const [rows] = await pool.execute(
+      'SELECT avatar_path FROM users WHERE id = ?',
+      [id]
+    );
+    const old = (rows as any[])[0]?.avatar_path as string | null;
+    if (old) rmIfExists(path.join(process.cwd(), old));
 
-      const relative = toRelativeAvatar(req.file.filename);
-      await pool.execute("UPDATE users SET avatar_path = ? WHERE id = ?", [
-        relative,
-        id,
-      ]);
+    const relative = RELATIVE_AVATAR(req.file.filename);
+    await pool.execute('UPDATE users SET avatar_path = ? WHERE id = ?', [
+      relative,
+      id,
+    ]);
 
-      res.json({ ok: true, avatarUrl: `${PUBLIC_BASE}/${relative}` });
-    } catch (e) {
-      console.error("[admin users/:id/avatar POST] error", e);
-      res.status(500).json({ message: "Server error" });
-    }
+    res.json({ ok: true, avatarUrl: `${PUBLIC_BASE}/${relative}` });
+  } catch (e) {
+    console.error('[admin users/:id/avatar POST] error', e);
+    res.status(500).json({ message: 'Server error' });
   }
-);
+});
+
 
 router.delete("/:id/avatar", requireAdmin, async (req, res) => {
   try {
@@ -375,18 +357,23 @@ router.post('/me/wallet/charge', requireAuth, async (req, res) => {
   }
 });
 
-router.get("/users", requireAuth, requireAdmin, async (_req, res) => {
+router.get('/users', requireAuth, requireAdmin, async (_req, res) => {
   const [rows] = await pool.execute<any[]>(
-    `SELECT id, username, email,
-            CASE WHEN avatar_path IS NULL THEN NULL
-                 ELSE CONCAT('http://localhost:3002/', avatar_path)
-            END AS avatarUrl
-     FROM \`${DB_SCHEMA}\`.users
-     WHERE role = 'USER' AND status = 'ACTIVE'
-     ORDER BY id DESC
-     LIMIT 100`
+    `SELECT id, username, email, avatar_path
+       FROM \`${DB_SCHEMA}\`.users
+      WHERE role = 'USER' AND status = 'ACTIVE'
+      ORDER BY id DESC
+      LIMIT 100`
   );
-  res.json({ ok: true, data: rows });
+
+  const data = rows.map((r) => ({
+    id: r.id,
+    username: r.username,
+    email: r.email,
+    avatarUrl: r.avatar_path ? `${PUBLIC_BASE}/${r.avatar_path}` : null,
+  }));
+
+  res.json({ ok: true, data });
 });
 
 

@@ -2,11 +2,9 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 
-const UPLOAD_ROOT = path.join(process.cwd(), 'uploads');
-const AVATAR_DIR_LOCAL = path.join(UPLOAD_ROOT, 'avatars');
 
-const IS_RENDER = !!process.env.RENDER || process.env.NODE_ENV === 'production';
-const AVATAR_DIR = IS_RENDER ? '/tmp/avatars' : AVATAR_DIR_LOCAL;
+const UPLOAD_ROOT = path.join(process.cwd(), 'uploads');
+const AVATAR_DIR = path.join(UPLOAD_ROOT, 'avatars');
 
 fs.mkdirSync(AVATAR_DIR, { recursive: true });
 

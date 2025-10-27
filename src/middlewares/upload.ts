@@ -5,15 +5,13 @@ import fs from 'fs';
 const UPLOAD_ROOT = path.join(process.cwd(), 'uploads');
 const AVATAR_DIR_LOCAL = path.join(UPLOAD_ROOT, 'avatars');
 
-// Render เขียนไฟล์ได้ที่ /tmp เท่านั้น
 const IS_RENDER = !!process.env.RENDER || process.env.NODE_ENV === 'production';
 const AVATAR_DIR = IS_RENDER ? '/tmp/avatars' : AVATAR_DIR_LOCAL;
 
-// สร้างโฟลเดอร์ปลายทางให้แน่ใจว่ามี
 fs.mkdirSync(AVATAR_DIR, { recursive: true });
 
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, AVATAR_DIR),  // ✅ ใช้โฟลเดอร์ที่มีจริง
+  destination: (_req, _file, cb) => cb(null, AVATAR_DIR),
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname || '').toLowerCase();
     const base = Date.now() + '-' + Math.round(Math.random() * 1e9);

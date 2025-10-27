@@ -22,19 +22,16 @@ import adminRankingsRoutes from './routes/admin/rankings';
 const app = express();
 const isProd = process.env.NODE_ENV === "production";
 
-// ✅ อยู่หลัง proxy (เช่น Render) เพื่อให้ Secure cookie ใช้งานได้
 app.set("trust proxy", 1);
 
-// ✅ ระบุ origin ให้ครบ และรองรับทั้ง dev/prod
+
 const ALLOWED_ORIGINS = [
-  "http://localhost:4200",
-  "https://server-1d8o.onrender.com", // ใส่โดเมนจริงของ frontend
+  "https://stream-shop-game.web.app",
 ];
 
 
 app.use(cors({
   origin: (origin, cb) => {
-    // อนุญาต no-origin (curl/Postman) และ whitelist ตรง ๆ
     if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
     return cb(new Error("Not allowed by CORS"));
   },
